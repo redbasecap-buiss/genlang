@@ -94,6 +94,43 @@ pub fn even_parity<R: Rng>(
     evolve(rng, config, &fitness)
 }
 
+/// Fibonacci problem: evolve a program that maps index n → fib(n).
+/// Uses indices 0..=max_n as training data.
+pub fn fibonacci<R: Rng>(
+    rng: &mut R,
+    max_n: usize,
+    config: &GpConfig,
+) -> (Node, f64, Vec<GenStats>) {
+    // Pre-compute Fibonacci targets
+    let mut fibs = vec![0.0f64; max_n + 1];
+    if max_n >= 1 {
+        fibs[1] = 1.0;
+    }
+    for i in 2..=max_n {
+        fibs[i] = fibs[i - 1] + fibs[i - 2];
+    }
+
+    let data: Vec<(f64, f64)> = (0..=max_n).map(|i| (i as f64, fibs[i])).collect();
+
+    let fitness = |tree: &Node| -> f64 {
+        let mut interp = Interpreter::default();
+        let mut total_error = 0.0;
+        for (x, y) in &data {
+            interp.reset();
+            match interp.eval(tree, &[*x]) {
+                Ok(val) => {
+                    let diff = val.to_f64() - y;
+                    total_error += diff * diff;
+                }
+                Err(_) => total_error += 1e6,
+            }
+        }
+        total_error / data.len() as f64
+    };
+
+    evolve(rng, config, &fitness)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,6 +168,23 @@ mod tests {
         assert_eq!(inputs.len(), 4);
         assert_eq!(inputs[0], vec![0.0, 0.0]);
         assert_eq!(inputs[3], vec![1.0, 1.0]);
+    }
+
+    #[test]
+    fn test_fibonacci() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        let config = GpConfig {
+            population_size: 200,
+            max_generations: 50,
+            max_depth: 5,
+            num_vars: 1,
+            ..GpConfig::default()
+        };
+
+        let (_best, best_fit, stats) = fibonacci(&mut rng, 8, &config);
+        assert!(!stats.is_empty());
+        // Should at least improve from random
+        assert!(best_fit < 1e6);
     }
 
     #[test]

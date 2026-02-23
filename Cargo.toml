@@ -1,6 +1,6 @@
 [package]
 name = "genlang"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Self-evolving programming language — programs mutate, crossover, and evolve to solve problems. Genetic Programming in pure Rust."
 license = "MIT"

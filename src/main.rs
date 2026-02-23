@@ -1,8 +1,9 @@
 use genlang::genetic::GpConfig;
 use genlang::io::{save_genome, save_stats, SavedGenome};
 use genlang::island::{island_evolve, IslandConfig};
-use genlang::problems::{even_parity, generate_data, symbolic_regression};
-use genlang::visualization::{print_evolution_summary, to_mermaid, tree_print};
+use genlang::pareto::{nsga2_evolve, NsgaConfig};
+use genlang::problems::{even_parity, fibonacci, generate_data, symbolic_regression};
+use genlang::visualization::{print_evolution_summary, sparkline, to_mermaid, tree_print};
 use rand::SeedableRng;
 
 fn main() {
@@ -16,7 +17,11 @@ fn main() {
     println!();
     demo_even_parity();
     println!();
+    demo_fibonacci();
+    println!();
     demo_island_model();
+    println!();
+    demo_multi_objective();
 }
 
 fn demo_symbolic_regression() {
@@ -52,7 +57,6 @@ fn demo_symbolic_regression() {
         println!("    {line}");
     }
 
-    // Save genome
     let saved = SavedGenome::new(best)
         .with_fitness(best_fit)
         .with_description("symbolic regression: x² + x + 1");
@@ -80,7 +84,6 @@ fn demo_even_parity() {
     print_evolution_summary(&stats);
     println!("  🏆 Best: {} (errors: {:.0})", best.to_expr(), best_fit);
 
-    // Verify
     println!("  Verification:");
     let mut interp = genlang::interpreter::Interpreter::default();
     for (a, b) in [(0.0, 0.0), (0.0, 1.0), (1.0, 0.0), (1.0, 1.0)] {
@@ -100,8 +103,45 @@ fn demo_even_parity() {
     }
 }
 
+fn demo_fibonacci() {
+    println!("🔄 Demo 3: Fibonacci (0..10)");
+    println!("-----------------------------");
+
+    let config = GpConfig {
+        population_size: 500,
+        max_generations: 100,
+        max_depth: 6,
+        num_vars: 1,
+        ..GpConfig::default()
+    };
+
+    let mut rng = rand::rngs::StdRng::seed_from_u64(55);
+    let (best, best_fit, stats) = fibonacci(&mut rng, 10, &config);
+
+    print_evolution_summary(&stats);
+    println!("  🏆 Best: {} (MSE: {:.4})", best.to_expr(), best_fit);
+
+    // Verify against actual Fibonacci
+    let fibs = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55];
+    println!("  Verification:");
+    let mut interp = genlang::interpreter::Interpreter::default();
+    for (i, &expected) in fibs.iter().enumerate() {
+        interp.reset();
+        let out = interp
+            .eval(&best, &[i as f64])
+            .map(|v| v.to_f64())
+            .unwrap_or(f64::NAN);
+        let mark = if (out - expected as f64).abs() < 1.0 {
+            "✓"
+        } else {
+            "✗"
+        };
+        println!("    fib({i}) = {out:.1} (expected {expected}) {mark}");
+    }
+}
+
 fn demo_island_model() {
-    println!("🏝️  Demo 3: Island Model (target: 3x + 2)");
+    println!("🏝️  Demo 4: Island Model (target: 3x + 2)");
     println!("------------------------------------------");
 
     let config = IslandConfig {
@@ -147,11 +187,73 @@ fn demo_island_model() {
         result.best_fitness
     );
 
-    // Show Mermaid diagram for the best
     println!("\n  📊 Mermaid diagram:");
     println!("  ```mermaid");
     for line in to_mermaid(&result.best_genome).lines() {
         println!("  {line}");
     }
     println!("  ```");
+}
+
+fn demo_multi_objective() {
+    println!("⚖️  Demo 5: Multi-Objective Pareto (accuracy vs simplicity)");
+    println!("------------------------------------------------------------");
+
+    let config = NsgaConfig {
+        population_size: 200,
+        max_generations: 50,
+        max_depth: 5,
+        num_vars: 1,
+        ..NsgaConfig::default()
+    };
+
+    let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+
+    // Objective 1: accuracy on x^2
+    let obj_accuracy = |tree: &genlang::ast::Node| -> f64 {
+        let mut interp = genlang::interpreter::Interpreter::default();
+        let mut error = 0.0;
+        for i in -5..=5 {
+            let x = i as f64;
+            interp.reset();
+            match interp.eval(tree, &[x]) {
+                Ok(val) => {
+                    let diff = val.to_f64() - x * x;
+                    error += diff * diff;
+                }
+                Err(_) => error += 1e6,
+            }
+        }
+        error / 11.0
+    };
+
+    // Objective 2: program size (simplicity)
+    let obj_simplicity = |tree: &genlang::ast::Node| -> f64 { tree.size() as f64 };
+
+    let (pareto_front, stats) = nsga2_evolve(&mut rng, &config, &[&obj_accuracy, &obj_simplicity]);
+
+    // Show convergence
+    let front_sizes: Vec<f64> = stats.iter().map(|s| s.pareto_front_size as f64).collect();
+    println!("  Pareto front size: {}", sparkline(&front_sizes));
+
+    println!("  Final Pareto front: {} solutions", pareto_front.len());
+
+    // Show top 5 solutions sorted by accuracy
+    let mut sorted = pareto_front.clone();
+    sorted.sort_by(|a, b| {
+        a.objectives[0]
+            .partial_cmp(&b.objectives[0])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    println!("  Top solutions (accuracy → simplicity tradeoff):");
+    for (i, sol) in sorted.iter().take(5).enumerate() {
+        println!(
+            "    #{}: MSE={:.4}, size={:.0}, expr={}",
+            i + 1,
+            sol.objectives[0],
+            sol.objectives[1],
+            sol.genome.to_expr()
+        );
+    }
 }

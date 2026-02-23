@@ -77,6 +77,78 @@ pub struct Individual {
     pub fitness: f64,
 }
 
+/// A bounded Hall of Fame that tracks the best unique individuals ever seen.
+#[derive(Debug, Clone)]
+pub struct HallOfFame {
+    pub capacity: usize,
+    pub entries: Vec<Individual>,
+}
+
+impl HallOfFame {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            entries: Vec::new(),
+        }
+    }
+
+    /// Try to insert an individual. Returns true if it was added.
+    pub fn insert(&mut self, genome: Node, fitness: f64) -> bool {
+        // Don't insert duplicates (by expression string)
+        let expr = genome.to_expr();
+        if self.entries.iter().any(|e| e.genome.to_expr() == expr) {
+            return false;
+        }
+
+        if self.entries.len() < self.capacity {
+            self.entries.push(Individual { genome, fitness });
+            self.entries.sort_by(|a, b| {
+                a.fitness
+                    .partial_cmp(&b.fitness)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            true
+        } else if fitness < self.entries.last().unwrap().fitness {
+            self.entries.pop();
+            self.entries.push(Individual { genome, fitness });
+            self.entries.sort_by(|a, b| {
+                a.fitness
+                    .partial_cmp(&b.fitness)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Get the best individual.
+    pub fn best(&self) -> Option<&Individual> {
+        self.entries.first()
+    }
+}
+
+/// Compute shared fitness using explicit fitness sharing.
+/// Individuals in crowded regions get penalized, promoting diversity.
+/// `sigma_share` controls the niche radius (based on genotypic distance = tree edit size diff).
+pub fn fitness_sharing(population: &mut [(Node, f64)], sigma_share: f64) {
+    let n = population.len();
+    let sizes: Vec<f64> = population.iter().map(|(t, _)| t.size() as f64).collect();
+    let raw_fitnesses: Vec<f64> = population.iter().map(|(_, f)| *f).collect();
+
+    for i in 0..n {
+        let mut niche_count = 0.0_f64;
+        for j in 0..n {
+            let distance = (sizes[i] - sizes[j]).abs();
+            if distance < sigma_share {
+                niche_count += 1.0 - (distance / sigma_share);
+            }
+        }
+        // Shared fitness = raw fitness * niche count (higher = worse for minimization)
+        population[i].1 = raw_fitnesses[i] * niche_count.max(1.0);
+    }
+}
+
 /// Configuration for the GP engine.
 #[derive(Debug, Clone)]
 pub struct GpConfig {
@@ -132,7 +204,7 @@ where
         })
         .collect();
 
-    let mut hall_of_fame: Option<(Node, f64)> = None;
+    let mut hof = HallOfFame::new(10);
     let mut stats = Vec::new();
 
     for gen in 0..config.max_generations {
@@ -153,9 +225,9 @@ where
             best_program: population[0].0.to_expr(),
         });
 
-        // Update hall of fame
-        if hall_of_fame.is_none() || best_fit < hall_of_fame.as_ref().unwrap().1 {
-            hall_of_fame = Some(population[0].clone());
+        // Update hall of fame with top individuals
+        for (tree, fit) in population.iter().take(3) {
+            hof.insert(tree.clone(), *fit);
         }
 
         // Early termination
@@ -210,7 +282,10 @@ where
             .collect();
     }
 
-    let (best, fit) = hall_of_fame.unwrap_or_else(|| population[0].clone());
+    let (best, fit) = hof
+        .best()
+        .map(|ind| (ind.genome.clone(), ind.fitness))
+        .unwrap_or_else(|| population[0].clone());
     (best, fit, stats)
 }
 
@@ -274,6 +349,47 @@ mod tests {
             }
         }
         assert!(best_count > 50); // should pick best most of the time
+    }
+
+    #[test]
+    fn test_hall_of_fame() {
+        let mut hof = HallOfFame::new(3);
+        assert!(hof.insert(Node::IntConst(1), 5.0));
+        assert!(hof.insert(Node::IntConst(2), 3.0));
+        assert!(hof.insert(Node::IntConst(3), 1.0));
+        // Full, worse individual rejected
+        assert!(!hof.insert(Node::IntConst(4), 10.0));
+        // Better individual accepted
+        assert!(hof.insert(Node::IntConst(5), 0.5));
+        assert_eq!(hof.entries.len(), 3);
+        assert!((hof.best().unwrap().fitness - 0.5).abs() < 1e-10);
+        // Duplicate rejected
+        assert!(!hof.insert(Node::IntConst(5), 0.1));
+    }
+
+    #[test]
+    fn test_fitness_sharing() {
+        // Two similar-size trees should get penalized, a different-size one less so
+        let mut pop = vec![
+            (Node::IntConst(1), 1.0), // size 1
+            (Node::IntConst(2), 1.0), // size 1
+            (
+                Node::BinOp(
+                    crate::ast::BinOp::Add,
+                    Box::new(Node::Var(0)),
+                    Box::new(Node::BinOp(
+                        crate::ast::BinOp::Mul,
+                        Box::new(Node::Var(0)),
+                        Box::new(Node::IntConst(3)),
+                    )),
+                ),
+                1.0,
+            ), // size 5
+        ];
+        fitness_sharing(&mut pop, 3.0);
+        // The two size-1 individuals should have higher (worse) shared fitness
+        // than the size-5 one since they're in the same niche
+        assert!(pop[0].1 > pop[2].1);
     }
 
     #[test]
