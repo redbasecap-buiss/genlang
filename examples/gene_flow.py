@@ -68,7 +68,11 @@ def create_gene_flow():
             n_parents = np.random.choice([1, 2], p=[0.3, 0.7])  # Mostly crossover
             
             # Select parents (fitness-biased)
-            parent_probs = np.array([0.4, 0.3, 0.2, 0.1])[:len(current_gen)]
+            if len(current_gen) <= 4:
+                parent_probs = np.array([0.4, 0.3, 0.2, 0.1])[:len(current_gen)]
+            else:
+                parent_probs = np.array([0.4, 0.3, 0.2, 0.1])
+                parent_probs = np.concatenate([parent_probs, np.full(len(current_gen) - 4, 0.1 / (len(current_gen) - 4))])
             parent_probs = parent_probs / parent_probs.sum()
             
             parent_indices = np.random.choice(len(current_gen), size=n_parents, 

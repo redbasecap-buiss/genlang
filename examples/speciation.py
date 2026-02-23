@@ -4,7 +4,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
-from sklearn.cluster import KMeans
+# from sklearn.cluster import KMeans  # Not needed for this visualization
 import os
 
 def create_speciation():
@@ -34,9 +34,9 @@ def create_speciation():
     early_data = []
     for _ in range(n_individuals):
         # Random diversity
-        point = np.random.randn(2) * 2 + np.random.choice([
-            [-3, 2], [2, 3], [-2, -2], [3, -1], [0, 0]
-        ]) + np.random.randn(2) * 0.8
+        centers = [[-3, 2], [2, 3], [-2, -2], [3, -1], [0, 0]]
+        center = centers[np.random.choice(len(centers))]
+        point = np.random.randn(2) * 2 + np.array(center) + np.random.randn(2) * 0.8
         early_data.append(point)
     early_data = np.array(early_data)
     

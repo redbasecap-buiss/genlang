@@ -3,7 +3,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy import stats
+# from scipy import stats  # Not needed for this visualization
 import os
 
 def create_tree_depth_distribution():
@@ -26,8 +26,9 @@ def create_tree_depth_distribution():
         # Initial generation: random depths (wide distribution)
         if gen == 0:
             depths = np.random.gamma(3, 2) + 2  # Starts around 4-10 depth
-            depths = np.random.choice(range(2, 15), 100, 
-                                    p=np.exp(-np.arange(2, 15) * 0.3))
+            probs = np.exp(-np.arange(2, 15) * 0.3)
+            probs = probs / probs.sum()
+            depths = np.random.choice(range(2, 15), 100, p=probs)
             depths = depths + np.random.normal(0, 0.5, 100)
         else:
             # Evolution tends toward optimal depth (around 6-8)
@@ -43,9 +44,9 @@ def create_tree_depth_distribution():
             
             # Add some bloat (occasional deep trees)
             if np.random.rand() < 0.3:
-                n_bloated = np.random.randint(5, 15)
-                bloated_depths = np.random.exponential(5) + 10
-                depths[:n_bloated] = bloated_depths[:n_bloated]
+                n_bloated = np.random.randint(5, min(15, len(depths)))
+                bloated_depths = np.random.exponential(5, n_bloated) + 10
+                depths[:n_bloated] = bloated_depths
         
         depth_data.append(depths)
     
