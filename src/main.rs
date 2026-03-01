@@ -46,6 +46,12 @@ fn main() {
     demo_map_elites();
     println!();
     demo_coevolution();
+    println!();
+    demo_grammatical_evolution();
+    println!();
+    demo_gene_expression_programming();
+    println!();
+    demo_convergence_dashboard();
 }
 
 fn demo_symbolic_regression() {
@@ -610,4 +616,109 @@ fn demo_coevolution() {
     println!("  Pop B win rate: {}", sparkline(&fit_b));
     println!("  🏆 Best A: {}", best_a.to_expr());
     println!("  🏆 Best B: {}", best_b.to_expr());
+}
+
+fn demo_grammatical_evolution() {
+    println!("📝 Demo 14: Grammatical Evolution (GE)");
+    println!("---------------------------------------");
+
+    use genlang::ge::{ge_evolve, GeConfig};
+
+    let config = GeConfig {
+        population_size: 300,
+        max_generations: 60,
+        codon_length: 80,
+        num_vars: 1,
+        ..GeConfig::default()
+    };
+
+    let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+
+    // Target: 2x + 3
+    let fitness = |tree: &genlang::ast::Node| -> f64 {
+        let mut interp = genlang::interpreter::Interpreter::default();
+        let mut error = 0.0;
+        for i in -5..=5 {
+            let x = i as f64;
+            interp.reset();
+            match interp.eval(tree, &[x]) {
+                Ok(val) => {
+                    let diff = val.to_f64() - (2.0 * x + 3.0);
+                    error += diff * diff;
+                }
+                Err(_) => error += 1e6,
+            }
+        }
+        error / 11.0
+    };
+
+    let (best, best_fit, stats) = ge_evolve(&mut rng, &config, &fitness);
+
+    print_evolution_summary(&stats);
+    println!("  🏆 Best: {} (MSE: {:.6})", best.to_expr(), best_fit);
+}
+
+fn demo_gene_expression_programming() {
+    println!("🧬 Demo 15: Gene Expression Programming (GEP)");
+    println!("-----------------------------------------------");
+
+    use genlang::gep::{gep_evolve, GepConfig};
+
+    let config = GepConfig {
+        population_size: 300,
+        max_generations: 60,
+        head_length: 7,
+        num_vars: 1,
+        ..GepConfig::default()
+    };
+
+    let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+
+    // Target: x^2 - 1
+    let fitness = |tree: &genlang::ast::Node| -> f64 {
+        let mut interp = genlang::interpreter::Interpreter::default();
+        let mut error = 0.0;
+        for i in -5..=5 {
+            let x = i as f64;
+            interp.reset();
+            match interp.eval(tree, &[x]) {
+                Ok(val) => {
+                    let diff = val.to_f64() - (x * x - 1.0);
+                    error += diff * diff;
+                }
+                Err(_) => error += 1e6,
+            }
+        }
+        error / 11.0
+    };
+
+    let (best, best_fit, stats) = gep_evolve(&mut rng, &config, &fitness);
+
+    print_evolution_summary(&stats);
+    println!("  🏆 Best: {} (MSE: {:.6})", best.to_expr(), best_fit);
+}
+
+fn demo_convergence_dashboard() {
+    println!("📊 Demo 16: Convergence Dashboard");
+    println!("----------------------------------");
+
+    use genlang::dashboard::save_dashboard;
+
+    // Run a quick evolution to get stats
+    let config = GpConfig {
+        population_size: 200,
+        max_generations: 50,
+        max_depth: 5,
+        num_vars: 1,
+        ..GpConfig::default()
+    };
+    let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+    let data = generate_data(|x| x * x + 1.0, -5..=5);
+    let (_, _, stats) = symbolic_regression(&mut rng, &data, &config);
+
+    match save_dashboard("dashboard.html", &stats, "x² + 1 Regression") {
+        Ok(()) => println!("  💾 Dashboard saved to dashboard.html"),
+        Err(e) => println!("  ⚠️  Could not save dashboard: {e}"),
+    }
+    println!("  📈 {} generations tracked", stats.len());
 }
